@@ -1,0 +1,207 @@
+---
+title: "Further Investigation into Hyper-parameters"
+author: "Star Li"
+date: "3/29/2020"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+```{r presetup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+# run the below codes to install required packages before moving on
+pkgLoad <- function() {
+
+    packages <- c("rerf", "ggplot2", "ggfortify", "Rstne", "umap", "ggpubr")
+
+    packagecheck <- match( packages, utils::installed.packages()[,1] )
+
+    packagestoinstall <- packages[ is.na( packagecheck ) ]
+
+    if( length( packagestoinstall ) > 0L ) {
+        utils::install.packages(packagestoinstall)
+    } else {
+        print( "All requested packages already installed" )
+    }
+
+    for( package in packages ) {
+        suppressPackageStartupMessages(
+            library( package, character.only = TRUE, quietly = TRUE )
+        )
+    }
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+# for the tiny mnist dataset
+library(rerf)
+library(ggplot2)
+# for easy collab with pca plot
+library(ggfortify)
+# for easy generate tsne with hyper-params
+library(Rtsne)
+# for UMAP related calculations
+library(umap)
+# for creating subplots for better visualizations
+library(ggpubr)
+
+# function that controls display plot size
+fig <- function(width, heigth){
+     options(repr.plot.width = width, repr.plot.height = heigth)
+}
+```
+
+```{r dataloading}
+# load the data into the environment
+data('mnist')
+mnist_y = mnist[['Ytrain']]
+mnist_X = data.frame(mnist[['Xtrain']])
+mnist_X[['Group']] = as.factor(mnist_y)
+```
+## Basic Targets
+
+Following the application of three dimensionality methods (`PCA`, `t-SNE`, `UMAP`) last time, we want to further investigate the different hyperparameters of the last two methods (the first one is a linear method with no hyper-parameter specified).
+
+## Hyperparameter-Tuning for t-SNE
+
+Once again, we start with the default parameters on the `MNIST-6000` dataset.
+
+```{r}
+tsne.plot <- function(perpl=30, iterations=500, learning=200){
+  tsne <- Rtsne(mnist_X[,-785], dims = 2, perplexity=perpl, verbose=TRUE, max_iter=iterations, eta=learning, partial_pca=TRUE)
+  return(tsne)
+}
+
+# create the graph two times
+tsne_default1 = tsne.plot()
+tsne_default2 = tsne.plot()
+
+default_plot_a = ggplot() + geom_point(aes(x = tsne_default1$Y[, 1], y = (x = tsne_default1$Y[, 2]), color = mnist_X$Group), size=1) + labs(title = "Default TSNE 1", x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+default_plot_b = ggplot() + geom_point(aes(x = tsne_default2$Y[, 1], y = (x = tsne_default2$Y[, 2]), color = mnist_X$Group), size=1) + labs(title = "Default TSNE 2", x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+ggsave("default_tsne.png", ggarrange(default_plot_a, default_plot_b, ncol = 2, nrow = 1))
+```
+![default_tsne](dim-reduct/default_tsne.png)
+Without fixing the `seed` for the R random generator, we see that running the `t-SNE` algorithm with the same set of parameters for two times gives two starkly different graphs. The above graph also displays a key property of `t-SNE`: while it does a good job preserving local distances in the high dimensional space (points closed to each other), it fails to maintain distances for relatively distant points (e.g. the point clouds for digit 3 `green` and 0 `red`).
+
+```{r}
+perps = c(2, 5, 10, 30, 50, 100)
+counter = 1
+
+tsne_results = list()
+
+for (perp in perps) {
+  tsne_results[[counter]] = tsne.plot(perpl = perp)
+  counter = counter + 1
+}
+
+p1 = ggplot() + geom_point(aes(x = tsne_results[[1]]$Y[, 1], y = tsne_results[[1]]$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p2 = ggplot() + geom_point(aes(x = tsne_results[[2]]$Y[, 1], y = tsne_results[[2]]$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p3 = ggplot() + geom_point(aes(x = tsne_results[[3]]$Y[, 1], y = tsne_results[[3]]$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p4 = ggplot() + geom_point(aes(x = tsne_results[[4]]$Y[, 1], y = tsne_results[[4]]$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p5 = ggplot() + geom_point(aes(x = tsne_results[[5]]$Y[, 1], y = tsne_results[[5]]$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p6 = ggplot() + geom_point(aes(x = tsne_results[[6]]$Y[, 1], y = tsne_results[[6]]$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+ggsave("tsne-perplexity.png", ggarrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3, labels = perps))
+```
+Secondly, we observe that most t-SNE implementations would first perform PCA on the data to shrink the dimension before continue dimensionality reduction. In our case the default PCA dimension is 50. So we can slightly change this value.
+```{r}
+pca_20 = Rtsne(mnist_X[,-785], dims = 2, perplexity=10, max_iter=500, eta=200, partial_pca=TRUE, initial_dims=20)
+pca_50 = Rtsne(mnist_X[,-785], dims = 2, perplexity=10, max_iter=500, eta=200, partial_pca=TRUE)
+pca_100 = Rtsne(mnist_X[,-785], dims = 2, perplexity=10, max_iter=500, eta=200, partial_pca=TRUE, initial_dims=100)
+
+set.seed(6324)
+p1 = ggplot() + geom_point(aes(x = pca_20$Y[, 1], y = pca_20$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+set.seed(6324)
+p2 = ggplot() + geom_point(aes(x = pca_50$Y[, 1], y = pca_50$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+set.seed(6324)
+p3 = ggplot() + geom_point(aes(x = pca_100$Y[, 1], y = pca_100$Y[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+ggsave("tsne-inital-pca.png", ggarrange(p1, p2, p3, ncol = 2, nrow = 2, labels = c("20", "50", "100")))
+```
+![tsne-initial-pca](dim-reduct/tsne-inital-pca.png)
+## Hyperparameter Tuning for UMAP
+
+According to the <a href="https://www.rdocumentation.org/packages/umap/versions/0.2.5.0/topics/umap.defaults">documentation</a>:
+> min_dist: numeric; determines how close points appear in the final layout
+> spread: numeric; used during automatic estimation of a/b parameters.
+
+Once again, we start by having a look at how UMAP can perserve local/nonlocal distances in comparison to t-SNE.
+```{r}
+tune_umap <- function(spread=1, min_dist=0.1, rand_seed=2020) {
+  config = umap.defaults
+  config$spread = spread
+  config$min_dist = min_dist
+  config$random_state = rand_seed
+  return(umap(mnist_X[,-785], config))
+}
+
+umap_default_a = tune_umap(rand_seed = 2018)
+umap_default_b = tune_umap(rand_seed = 1918)
+
+p1 = ggplot() + geom_point(aes(x = umap_default_a$layout[, 1], y = (x = umap_default_a$layout[, 2]), color = mnist_X$Group), size=0.5) + labs(x = "UMAP 1", y = "UMAP 2", color = "colors") + coord_fixed()
+p2 = ggplot() + geom_point(aes(x = umap_default_b$layout[, 1], y = (x = umap_default_b$layout[, 2]), color = mnist_X$Group), size=0.5) + labs(x = "UMAP 1", y = "UMAP 2", color = "colors") + coord_fixed()
+
+ggsave("umap-default.png", ggarrange(p1, p2, ncol = 2, nrow = 1))
+```
+![umap-default](dim-reduct/umap-default.png)
+Tuning `min_dist` and `spread`:
+```{r}
+dists = c(0.0001, 0.001, 0.1, 0.5, 1, 1.5)
+counter = 1
+
+umap_results = list()
+
+for (dist in dists) {
+  umap_results[[counter]] = tune_umap(min_dist = dist, spread=2)
+  counter = counter + 1
+}
+
+p1 = ggplot() + geom_point(aes(x = umap_results[[1]]$layout[, 1], y = umap_results[[1]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p2 = ggplot() + geom_point(aes(x = umap_results[[2]]$layout[, 1], y = umap_results[[2]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p3 = ggplot() + geom_point(aes(x = umap_results[[3]]$layout[, 1], y = umap_results[[3]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p4 = ggplot() + geom_point(aes(x = umap_results[[4]]$layout[, 1], y = umap_results[[4]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p5 = ggplot() + geom_point(aes(x = umap_results[[5]]$layout[, 1], y = umap_results[[5]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p6 = ggplot() + geom_point(aes(x = umap_results[[6]]$layout[, 1], y = umap_results[[6]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+ggsave("umap-mindists.png", ggarrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3, labels = dists))
+```
+![umap-mindists](dim-reduct/umap-mindists.png)
+```{r}
+spreads = c(0.11, 0.2, 0.5, 1, 2, 5)
+counter = 1
+
+umap_results = list()
+
+for (s in spreads) {
+  umap_results[[counter]] = tune_umap(spread = s, min_dist = 0.1)
+  counter = counter + 1
+}
+
+p1 = ggplot() + geom_point(aes(x = umap_results[[1]]$layout[, 1], y = umap_results[[1]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p2 = ggplot() + geom_point(aes(x = umap_results[[2]]$layout[, 1], y = umap_results[[2]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p3 = ggplot() + geom_point(aes(x = umap_results[[3]]$layout[, 1], y = umap_results[[3]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p4 = ggplot() + geom_point(aes(x = umap_results[[4]]$layout[, 1], y = umap_results[[4]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p5 = ggplot() + geom_point(aes(x = umap_results[[5]]$layout[, 1], y = umap_results[[5]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+p6 = ggplot() + geom_point(aes(x = umap_results[[6]]$layout[, 1], y = umap_results[[6]]$layout[, 2], color = mnist_X$Group), size=0.5) + labs(x = "t-SNE 1", y = "t-SNE 2", color = "colors") + coord_fixed()
+
+ggsave("umap-spreads.png", ggarrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3, labels = spreads))
+```
+![umap-spreads](dim-reduct/umap-spreads.png)

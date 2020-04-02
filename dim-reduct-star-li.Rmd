@@ -1,0 +1,119 @@
+---
+title: "Dim-reduction"
+author: "Star Li"
+date: "3/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# for the tiny mnist dataset
+library(rerf)
+library(ggplot2)
+# for easy collab with pca plot
+library(ggfortify)
+# for easy generate tsne with hyper-params
+library(Rtsne)
+# for UMAP related calculations
+library(umap)
+```
+
+```{r}
+# load the data into the environment
+data(mnist)
+mnist_y = mnist[['Ytrain']]
+mnist_X = data.frame(mnist[['Xtrain']])
+mnist_X[['Group']] = as.factor(mnist_y)
+```
+## MNIST (Tiny) Dataset (6000 * 784)
+
+The dataset I pick is one of the most reknowned dataset in machine learning -- the tiny version of MNIST dataset containing 6000 training data points with labels from 0 to 9. I pick this dataset for several reasons. 
+
+1. Accessibility:
+
+I've worked with this dataset in my several other courses so I know its format (rows, cols, labels etc) and how to work with it. 
+
+2. Medium-level Dimensionality:
+
+Each sample (row) of MNIST dataset has 784 features (columns) each corresponding to a pixel value in a 28 * 28 image. It contains more features than other toy dataset and can be a good prepartion before handling huge dimensions RNAseq dataset.
+
+3. Sparse Data Matrix:
+
+Most of the pixels in the column has value 0, and therefore the sample matrix is relatively sparse.
+
+## PCA
+
+```{r}
+mnist.pca = prcomp(mnist_X[,1:784])
+pca.plot = autoplot(mnist.pca, data = mnist_X, colour = "Group")
+pca.plot
+```
+
+## TSNE-analysis
+
+#### For this one, we will use the M3C package to help us with generating graphs
+
+```{r}
+tsne.plot <- function(perpl=30, iterations=500, learning=200){
+  set.seed(12345) # for reproducibility
+  tsne <- Rtsne(mnist_X[,-785], dims = 2, perplexity=perpl, verbose=TRUE, max_iter=iterations, eta=learning)
+  return(tsne)
+}
+
+mnist.tsne = tsne.plot()
+
+ggplot() + geom_point(aes(x = mnist.tsne$Y[, 1], y = (x = mnist.tsne$Y[, 2]), color = mnist_X$Group)) + labs(title = "Vanilla TSNE", x = "t-SNE 1", y = "t-SNE 2", color = "colors")
+```
+
+By changing the hyper-parameters (perplexity, learning rate, iterations etc) we can get different results.
+
+```{r}
+mnist.tsne = tsne.plot(perpl = 2)
+
+ggplot() + geom_point(aes(x = mnist.tsne$Y[, 1], y = (x = mnist.tsne$Y[, 2]), color = mnist_X$Group)) + labs(title = "TSNE with perpl 2", x = "t-SNE 1", y = "t-SNE 2", color = "colors")
+```
+
+So by the above tuning of the parameter perplexity, we see that higher perplexity seems to pull different clusters further away from each other. This does make sense since perplexity is tightly related to the optimal sigma we use for the normal distribution in high dimensional space.
+
+## UMAP Analysis
+
+#### For the UMAP visualization, we will use the `umap` package.
+
+```{r}
+# The vanilla UMAP dimensionality reduction (default parameters)
+mnist.umap = umap(mnist_X[,-785])
+
+ggplot() + geom_point(aes(x = mnist.umap$layout[, 1], y = (x = mnist.umap$layout[, 2]), color = mnist_X$Group)) + labs(title = "Vanilla UMAP", x = "UMAP 1", y = "UMAP 2", color = "colors")
+```
+
+The most important hyperparameters for UMAP are the k neighbors and min_dist. We will tune them individually to see how the layout changes.
+
+```{r}
+config1 = umap.defaults
+# default for neighbors is 15. Since there are only 10 classes, 5 seems ok.
+config1$n_neighbors = 5
+
+mnist.umap1 = umap(mnist_X[,-785], config1)
+
+ggplot() + geom_point(aes(x = mnist.umap1$layout[, 1], y = (x = mnist.umap1$layout[, 2]), color = mnist_X$Group)) + labs(title = "UMAP 1", x = "UMAP 1", y = "UMAP 2", color = "colors")
+```
+
+```{r}
+config2 = umap.defaults
+# default for neighbors is 15. Since there are only 10 classes, 5 seems ok.
+config2$spread = 1.5
+config2$min_dist = 1
+
+mnist.umap2 = umap(mnist_X[,-785], config2)
+
+ggplot() + geom_point(aes(x = mnist.umap2$layout[, 1], y = (x = mnist.umap2$layout[, 2]), color = mnist_X$Group)) + labs(title = "UMAP 2", x = "UMAP 1", y = "UMAP 2", color = "colors")
+```
+
+#### Brief comparison between UMAP and TSNE on maintaining global structure
+
+When tuning different hyper-parameters for t-SNE, we observe that the relative position for some clusters have been changed in the process even though the clusters themselves are preserved (which shows how t-SNE focuses on similar points). For UMAP, the general layout between different groups are better preserved despite hyper-parameter changes. So the distances between clusters in UMAP's case can be more reliable. As a trade-off, we can see that t-SNE offers a clearer boundary for each cluster.
+
+#### About the speed of UMAP, TSNE
+
+I don't see how UMAP is much faster than TSNE as many people online claim. One reason can be that I'm using random (not really) packages found online to perform these operations and the optimizations behind are inside the blackboxes (e.g. the t-SNE algorithm uses a really quick PCA technique for preprocessing). Also, my computer is a laptop so some advantage of UMAP in gradient descent might not get fully expressed.
