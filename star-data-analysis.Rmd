@@ -1,0 +1,193 @@
+---
+title: "Star-data-analysis"
+author: "Star Li"
+date: "4/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(scRNAseq)
+library(ggplot2)
+library(scater)
+library(scran)
+library(Rtsne)
+```
+```{r}
+lamanno_brain_es = LaMannoBrainData('human-es')
+lamanno_brain_es
+
+count_mat = counts(lamanno_brain_es)
+```
+
+### Step One: Quality Control
+We are primarily concerned with the following metrics.
+
+1. library (cell) size: the library size is the sum across all features for a given cell. Small library size might indicate low quality as the RNA has been lost at some point during library preparation, either due to cell lysis or inefficient cDNA capture and amplification.
+
+Plotting the distribution of library sizes for all cells.
+```{r}
+lib_sizes = colSums(count_mat)
+
+count_dist = ggplot(data.frame(lib_size=lib_sizes), aes(x=lib_size)) + geom_histogram(color="black", fill="grey")
+
+count_dist
+```
+```{r}
+summary(lib_sizes)
+```
+
+2. The number of expressed features in each cell is defined as the number of endogenous genes with non-zero counts for that cell. Any cell with very few expressed genes is likely to be of poor quality as the diverse transcript population has not been successfully captured.
+
+```{r}
+expressed_feature = apply(count_mat, 2, function(col) sum(col > 0))
+
+ggplot(data.frame(expressed_feature_count=expressed_feature), aes(x=expressed_feature_count)) + geom_histogram(color="black", fill="grey")
+```
+```{r}
+summary(expressed_feature)
+```
+
+Since our chosen dataset doesn't have genes from spike-in transcripts or mitochondrial genome, there are fewer metric to look at when deciding the quality of the cells. So the returned value from `addPerCellQC` method has fewer columns.
+
+```{r}
+lamanno_brain_es = addPerCellQC(lamanno_brain_es)
+colnames(colData(lamanno_brain_es))
+
+# total column is identical with sum, so we should remove it
+colData(lamanno_brain_es)$total = NULL
+```
+
+Method 1: Fixed Threshold
+
+We have observed the distribution of library sizes and expressed features (counts). So we may manually select a threshold for identifying low quality cells.
+
+```{r}
+# fixed quality control
+df = colData(lamanno_brain_es)
+
+qc.lib = df$sum < 5000
+qc.express = df$detected < 2000
+discard = qc.lib | qc.express
+
+DataFrame(LibSize=sum(qc.lib), Express=sum(qc.express),
+    Total=sum(discard))
+```
+
+Method 2: Adaptive Threshold
+
+```{r}
+# identify the outliers
+qc.lib2 <- isOutlier(df$sum, log=TRUE, type="lower")
+qc.express2 <- isOutlier(df$detected, log=TRUE, type="lower")
+
+attr(qc.lib2, "thresholds")
+```
+
+```{r}
+attr(qc.express2, "thresholds")
+```
+```{r}
+discard2 = qc.lib2 | qc.express2
+
+DataFrame(LibSize=sum(qc.lib2), Express=sum(qc.express2),
+    Total=sum(discard2))
+```
+
+```{r}
+lib2_thresh = attr(qc.lib2, "thresholds")[1]
+express2_thresh = attr(qc.express2, "thresholds")[1]
+
+qc.plot1 = plotColData(lamanno_brain_es, y="sum") + geom_hline(yintercept = lib2_thresh, colour = "red", size = 1.5, linetype = "dashed") + geom_hline(yintercept = 5000, colour = "blue", size = 1.5)
+
+qc.plot2 = plotColData(lamanno_brain_es, y="detected") + geom_hline(yintercept = express2_thresh, colour = "red", size = 1.5, linetype = "dashed") + geom_hline(yintercept = 2000, colour = "blue", size = 1.5)
+
+gridExtra::grid.arrange(qc.plot1, qc.plot2, ncol=2)
+```
+
+Finally we will remove the `low quality` cells from the object.
+```{r}
+lamanno_brain_es = lamanno_brain_es[, !discard2]
+```
+
+### Step2: Normalization
+
+This step looks somewhat straightforward to our dataset without any spike-in adding complexity.
+
+```{r}
+lib_sf = librarySizeFactors(lamanno_brain_es)
+summary(lib_sf)
+```
+```{r}
+lib_sizes = colSums(count_mat)
+count_dist = ggplot(data.frame(lib_size=lib_sizes), aes(x=lib_size)) + geom_histogram(color="black", fill="grey")
+
+sz_dist = ggplot() + geom_histogram(aes(x=lib_sf), color="black", fill="grey") + xlab("size factor")
+
+gridExtra::grid.arrange(sz_dist, count_dist, ncol=2)
+```
+```{r}
+set.seed(2020)
+clust = quickCluster(lamanno_brain_es)
+lamanno_brain_es = computeSumFactors(lamanno_brain_es, cluster=clust, min.mean=0.1)
+lamanno_brain_es = logNormCounts(lamanno_brain_es)
+
+normalized_sz = colSums(logcounts(lamanno_brain_es))
+ggplot() + geom_histogram(aes(x=normalized_sz), color="black", fill="grey")
+```
+
+### Step3: Feature Selection
+```{r}
+mean_var <- modelGeneVar(lamanno_brain_es)
+
+# Visualizing the fit:
+fit.meanvar <- metadata(mean_var)
+plot(fit.meanvar$mean, fit.meanvar$var, xlab="Mean of log-expression",
+    ylab="Variance of log-expression")
+```
+```{r}
+head(mean_var[order(mean_var$bio, decreasing=TRUE),])
+```
+```{r}
+chosen = getTopHVGs(mean_var, prop=0.1)
+str(chosen)
+```
+```{r}
+set.seed(2020)
+lamanno_brain_es = runPCA(lamanno_brain_es, subset_row=chosen)
+lamanno_brain_es = runUMAP(lamanno_brain_es, dimred = 'PCA', external_neighbors=TRUE, subset_row=chosen)
+lamanno_brain_es = runTSNE(lamanno_brain_es, dimred = 'PCA', perplexity = 20, subset_row=chosen)
+```
+
+
+### Visualization
+
+```{r}
+pca_1 = plotReducedDim(lamanno_brain_es, dimred="TSNE",
+    colour_by="Cell_type") + ggtitle("PCA, color by cell_type")
+
+pca_2 = plotReducedDim(lamanno_brain_es, dimred="TSNE",
+    colour_by="Timepoint") + ggtitle("PCA, color by day")
+
+gridExtra::grid.arrange(pca_1, pca_2, ncol=2)
+```
+
+```{r}
+tsne_1 = plotReducedDim(lamanno_brain_es, dimred="TSNE",
+    colour_by="Cell_type") + ggtitle("TSNE with perp = 30, color by cell_type")
+
+tsne_2 = plotReducedDim(lamanno_brain_es, dimred="TSNE",
+    colour_by="Timepoint") + ggtitle("TSNE with perp = 30, color by day")
+
+gridExtra::grid.arrange(tsne_1, tsne_2, ncol=2)
+```
+```{r}
+umap_1 = plotReducedDim(lamanno_brain_es, dimred="UMAP",
+    colour_by="Cell_type") + ggtitle("UMAP color by cell_type")
+
+umap_2 = plotReducedDim(lamanno_brain_es, dimred="UMAP",
+    colour_by="Timepoint") + ggtitle("UMAP color by day")
+
+gridExtra::grid.arrange(umap_1, umap_2, ncol=2)
+```

@@ -83,7 +83,7 @@ default_plot_b = ggplot() + geom_point(aes(x = tsne_default2$Y[, 1], y = (x = ts
 
 ggsave("default_tsne.png", ggarrange(default_plot_a, default_plot_b, ncol = 2, nrow = 1))
 ```
-![default_tsne](dim-reduct/default_tsne.png)
+![default_tsne](images/default_tsne.png)
 Without fixing the `seed` for the R random generator, we see that running the `t-SNE` algorithm with the same set of parameters for two times gives two starkly different graphs. The above graph also displays a key property of `t-SNE`: while it does a good job preserving local distances in the high dimensional space (points closed to each other), it fails to maintain distances for relatively distant points (e.g. the point clouds for digit 3 `green` and 0 `red`).
 
 ```{r}
@@ -111,6 +111,8 @@ p6 = ggplot() + geom_point(aes(x = tsne_results[[6]]$Y[, 1], y = tsne_results[[6
 
 ggsave("tsne-perplexity.png", ggarrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3, labels = perps))
 ```
+![tsne-initial-pca](images/tsne-perplexity.png)
+
 Secondly, we observe that most t-SNE implementations would first perform PCA on the data to shrink the dimension before continue dimensionality reduction. In our case the default PCA dimension is 50. So we can slightly change this value.
 ```{r}
 pca_20 = Rtsne(mnist_X[,-785], dims = 2, perplexity=10, max_iter=500, eta=200, partial_pca=TRUE, initial_dims=20)
@@ -126,7 +128,7 @@ p3 = ggplot() + geom_point(aes(x = pca_100$Y[, 1], y = pca_100$Y[, 2], color = m
 
 ggsave("tsne-inital-pca.png", ggarrange(p1, p2, p3, ncol = 2, nrow = 2, labels = c("20", "50", "100")))
 ```
-![tsne-initial-pca](dim-reduct/tsne-inital-pca.png)
+![tsne-initial-pca](images/tsne-inital-pca.png)
 ## Hyperparameter Tuning for UMAP
 
 According to the <a href="https://www.rdocumentation.org/packages/umap/versions/0.2.5.0/topics/umap.defaults">documentation</a>:
@@ -151,7 +153,7 @@ p2 = ggplot() + geom_point(aes(x = umap_default_b$layout[, 1], y = (x = umap_def
 
 ggsave("umap-default.png", ggarrange(p1, p2, ncol = 2, nrow = 1))
 ```
-![umap-default](dim-reduct/umap-default.png)
+![umap-default](images/umap-default.png)
 Tuning `min_dist` and `spread`:
 ```{r}
 dists = c(0.0001, 0.001, 0.1, 0.5, 1, 1.5)
@@ -178,7 +180,7 @@ p6 = ggplot() + geom_point(aes(x = umap_results[[6]]$layout[, 1], y = umap_resul
 
 ggsave("umap-mindists.png", ggarrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3, labels = dists))
 ```
-![umap-mindists](dim-reduct/umap-mindists.png)
+![umap-mindists](images/umap-mindists.png)
 ```{r}
 spreads = c(0.11, 0.2, 0.5, 1, 2, 5)
 counter = 1
@@ -204,4 +206,4 @@ p6 = ggplot() + geom_point(aes(x = umap_results[[6]]$layout[, 1], y = umap_resul
 
 ggsave("umap-spreads.png", ggarrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3, labels = spreads))
 ```
-![umap-spreads](dim-reduct/umap-spreads.png)
+![umap-spreads](images/umap-spreads.png)
